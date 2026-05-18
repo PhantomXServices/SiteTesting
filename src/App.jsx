@@ -1690,11 +1690,15 @@ function ContactForm({ type }) {
   const [body, setBody]       = useState("");
 
   // In production: POST to your backend/Supabase edge function or Formspree
-  const submit = () => {
-    if (!email.trim() || !body.trim()) return;
-    // Integrate with Formspree: replace action URL, or use fetch() to your backend
-    setSent(true);
-  };
+const submit = async () => {
+  if (!email.trim() || !body.trim()) return
+  const res = await fetch('https://formspree.io/f/XXXXXXXX', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, email, subject, message: body })
+  })
+  if (res.ok) setSent(true)
+}
 
   if (sent) return (
     <div style={{ background: P.card, border: `1px solid ${P.border}`, borderRadius: 8, padding: "1.5rem", marginTop: "1.5rem", textAlign: "center" }}>
