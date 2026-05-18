@@ -1,3 +1,10 @@
+import { createClient } from '@supabase/supabase-js'
+
+const supabase = createClient(
+  'https://nficcysmymokvxdamvwr.supabase.co',
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5maWNjeXNteW1va3Z4ZGFtdndyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkwNjk4MDMsImV4cCI6MjA5NDY0NTgwM30.rJb5XaDwpvdRWZasa0RPA0_YhLjSPXfke0nQtO10GM4'
+)
+
 // ============================================================
 // VIVID — Roblox Script Review Site
 // ============================================================
@@ -823,15 +830,32 @@ function AuthModal({ mode: initMode, onClose, onAuth }) {
   const [pass, setPass]     = useState("");
   const [err, setErr]       = useState("");
 
-  const submit = () => {
+  const submit = async () => {
     setErr("");
     if (!username.trim()) { setErr("Username is required."); return; }
     if (mode === "register" && !email.trim()) { setErr("Email is required."); return; }
     if (mode === "register" && !/\S+@\S+\.\S+/.test(email)) { setErr("Enter a valid email."); return; }
     if (pass.length < 6) { setErr("Password must be at least 6 characters."); return; }
-    // In production: call Supabase auth here (see CONFIG: BACKEND_NOTES)
-    onAuth({ username: username.trim(), email: email.trim() });
-    onClose();
+
+    if (mode === "register") {
+      const { error } = await supabase.auth.signUp({
+        email: email,
+        password: pass,
+        options: { data: { username: username } }
+      });
+      if (error) { setErr(error.message); return; }
+      onAuth({ username, email });
+      onClose();
+    } else {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email,
+        password: pass
+      });
+      if (error) { setErr(error.message); return; }
+      const meta = data.user.user_metadata;
+      onAuth({ username: meta.username, email: data.user.email });
+      onClose();
+    }
   };
 
   return (
@@ -889,6 +913,15 @@ export default function App() {
   const [profileTab, setProfileTab] = useState("favorites");
   const [toast, setToast]       = useState({ msg: "", show: false });
   const toastRef                = useRef(null);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        const meta = session.user.user_metadata;
+        setUser({ username: meta.username, email: session.user.email });
+      }
+    });
+  }, []);
 
   const showToast = useCallback((msg) => {
     setToast({ msg, show: true });
@@ -983,9 +1016,9 @@ export default function App() {
                 </span>
                 {user.username}
               </div>
-              <button className="btn btn-ghost btn-sm" onClick={() => { setUser(null); setFavs([]); showToast("Signed out"); }}>
-                Sign out
-              </button>
+<button className="btn btn-ghost btn-sm" onClick={async () => { await supabase.auth.signOut(); setUser(null); setFavs([]); showToast("Signed out"); }}>
+  Sign out
+</button>
             </>
           ) : (
             <>
@@ -1290,18 +1323,33 @@ function IndexPage({ items, cats, filter, setFilter, search, setSearch, onOpen, 
 function DetailPage({ item, section, onBack, user, favorites, toggleFav, commentsData, onComment, showToast, onGet, setModal }) {
   const [commentText, setCommentText] = useState("");
   const [liked, setLiked]             = useState([]);
+  const [itemComments, setItemComments] = useState([]);
   const fav      = favorites.includes(item.id);
   const isMarket = section === "marketplace";
-  const itemComments = commentsData[item.id] || [];
 
-  const postComment = () => {
+  useEffect(() => {
+    supabase.from('comments')
+      .select('*')
+      .eq('item_id', item.id)
+      .order('created_at', { ascending: true })
+      .then(({ data }) => setItemComments(data || []));
+  }, [item.id]);
+
+  const postComment = async () => {
     if (!user) { setModal("login"); return; }
     if (!commentText.trim()) return;
-    onComment(item.id, {
-      id: Date.now(), user: user.username,
-      av: user.username[0].toUpperCase(),
-      body: commentText.trim(), time: "just now", likes: 0,
+    const { error } = await supabase.from('comments').insert({
+      item_id: item.id,
+      user_id: (await supabase.auth.getUser()).data.user.id,
+      username: user.username,
+      body: commentText.trim(),
     });
+    if (error) { showToast("Failed to post"); return; }
+    const { data } = await supabase.from('comments')
+      .select('*')
+      .eq('item_id', item.id)
+      .order('created_at', { ascending: true });
+    setItemComments(data || []);
     setCommentText("");
     showToast("Comment posted");
   };
